@@ -1,0 +1,20 @@
+Description: use @sysconfdir@/motion instead of @sysconfdir@
+Author: Ximin Luo <infinity0@pwned.gg>
+Bug: https://github.com/sackmotion/motion/pull/16
+
+diff --git a/conf.c b/conf.c
+index 4383101..03b476c 100644
+--- a/conf.c
++++ b/conf.c
+@@ -1784,7 +1784,7 @@ void conf_print(struct context **cnt)
+                     fprintf(conffile, "%s\n", val);
+ 
+                     if (strlen(val) == 0)
+-                        fprintf(conffile, "; thread /usr/local/etc/thread1.conf\n");
++                        fprintf(conffile, "; thread %s/motion/thread1.conf\n", sysconfdir);
+ 
+                     free(val);
+                 } else if (thread == 0) {
+-- 
+1.9.0
+

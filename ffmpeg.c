@@ -15,6 +15,66 @@
 #include "ffmpeg.h"
 #include "motion.h"
 
+#if LIBAVFORMAT_BUILD >= AV_VERSION_INT(52,107,0)
+/*
+ * URLContext, URLProtocol have been removed from avio.h
+ *
+ */
+
+typedef struct URLContext {
+    const AVClass *av_class;    /**< information for av_log(). Set by url_open(). */
+    struct URLProtocol *prot;
+    void *priv_data;
+    char *filename;             /**< specified URL */
+    int flags;
+    int max_packet_size;        /**< if non zero, the stream is packetized with this max packet size */
+    int is_streamed;            /**< true if streamed (no seek possible), default = false */
+    int is_connected;
+    AVIOInterruptCB interrupt_callback;
+    int64_t rw_timeout;         /**< maximum time to wait for (network) read/write operation completion, in mcs */
+} URLContext;
+
+typedef struct URLProtocol {
+    const char *name;
+    int     (*url_open)( URLContext *h, const char *url, int flags);
+    /**
+     * This callback is to be used by protocols which open further nested
+     * protocols. options are then to be passed to ffurl_open()/ffurl_connect()
+     * for those nested protocols.
+     */
+    int     (*url_open2)(URLContext *h, const char *url, int flags, AVDictionary **options);
+
+    /**
+     * Read data from the protocol.
+     * If data is immediately available (even less than size), EOF is
+     * reached or an error occurs (including EINTR), return immediately.
+     * Otherwise:
+     * In non-blocking mode, return AVERROR(EAGAIN) immediately.
+     * In blocking mode, wait for data/EOF/error with a short timeout (0.1s),
+     * and return AVERROR(EAGAIN) on timeout.
+     * Checking interrupt_callback, looping on EINTR and EAGAIN and until
+     * enough data has been read is left to the calling function; see
+     * retry_transfer_wrapper in avio.c.
+     */
+    int     (*url_read)( URLContext *h, unsigned char *buf, int size);
+    int     (*url_write)(URLContext *h, const unsigned char *buf, int size);
+    int64_t (*url_seek)( URLContext *h, int64_t pos, int whence);
+    int     (*url_close)(URLContext *h);
+    struct URLProtocol *next;
+    int (*url_read_pause)(URLContext *h, int pause);
+    int64_t (*url_read_seek)(URLContext *h, int stream_index,
+                             int64_t timestamp, int flags);
+    int (*url_get_file_handle)(URLContext *h);
+    int (*url_get_multi_file_handle)(URLContext *h, int **handles,
+                                     int *numhandles);
+    int (*url_shutdown)(URLContext *h, int flags);
+    int priv_data_size;
+    const AVClass *priv_data_class;
+    int flags;
+    int (*url_check)(URLContext *h, int mask);
+} URLProtocol;
+#endif
+
 #if LIBAVCODEC_BUILD > 4680
 /*
  * FFmpeg after build 4680 doesn't have support for mpeg1 videos with
@@ -374,7 +434,7 @@ static AVOutputFormat *get_oformat(const char *codec, char *filename)
 #endif
         /* Manually override the codec id. */
         if (of)
-            of->video_codec = CODEC_ID_MSMPEG4V2;
+            of->video_codec = AV_CODEC_ID_MSMPEG4V2;
 
     } else if (strcmp(codec, "swf") == 0) {
         ext = ".swf";
@@ -390,7 +450,7 @@ static AVOutputFormat *get_oformat(const char *codec, char *filename)
 #else        
         of = av_guess_format("flv", NULL, NULL);
 #endif        
-        of->video_codec = CODEC_ID_FLV1;
+        of->video_codec = AV_CODEC_ID_FLV1;
     } else if (strcmp(codec, "ffv1") == 0) {
         ext = ".avi";
 #ifdef GUESS_NO_DEPRECATED
@@ -403,7 +463,7 @@ static AVOutputFormat *get_oformat(const char *codec, char *filename)
          * Requires strict_std_compliance to be <= -2
          */
         if (of)
-            of->video_codec = CODEC_ID_FFV1;
+            of->video_codec = AV_CODEC_ID_FFV1;
 
     } else if (strcmp(codec, "mov") == 0) {
         ext = ".mov";
@@ -499,7 +559,7 @@ struct ffmpeg *ffmpeg_open(char *ffmpeg_video_codec, char *filename,
 
     /* Create a new video stream and initialize the codecs. */
     ffmpeg->video_st = NULL;
-    if (ffmpeg->oc->oformat->video_codec != CODEC_ID_NONE) {
+    if (ffmpeg->oc->oformat->video_codec != AV_CODEC_ID_NONE) {
 #if defined FF_API_NEW_AVIO 
         ffmpeg->video_st = avformat_new_stream(ffmpeg->oc, NULL /* Codec */);
 #else
@@ -526,7 +586,7 @@ struct ffmpeg *ffmpeg_open(char *ffmpeg_video_codec, char *filename,
 #else
     c->codec_type = AVMEDIA_TYPE_VIDEO;
 #endif    
-    is_mpeg1      = c->codec_id == CODEC_ID_MPEG1VIDEO;
+    is_mpeg1      = c->codec_id == AV_CODEC_ID_MPEG1VIDEO;
 
     if (strcmp(ffmpeg_video_codec, "ffv1") == 0)
         c->strict_std_compliance = -2;
